@@ -7,9 +7,12 @@ import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.ECParameterSpec;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
+import java.security.spec.EllipticCurve;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
+import java.security.spec.InvalidParameterSpecException;
 
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -18,6 +21,11 @@ import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.DERSequenceGenerator;
 import org.bouncycastle.asn1.DERTaggedObject;
+import org.bouncycastle.jcajce.provider.asymmetric.util.EC5Util;
+import org.bouncycastle.jce.ECNamedCurveTable;
+import org.bouncycastle.jce.ECPointUtil;
+import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
+import org.bouncycastle.math.ec.ECCurve;
 
 public class QrCodeSignatureVerifier {
     public boolean verify(String qrCodeString) {
@@ -25,23 +33,32 @@ public class QrCodeSignatureVerifier {
             byte[] rawdata = createRawDataFromQrCode(qrCodeString);
             byte[] signature = createDerSignatureFromQrCode(qrCodeString);
             PublicKey publicKey = createPublicKeyFromQrCode(qrCodeString);
+            Signature verifier = createVeriferFromQrCode(qrCodeString);
 
-            Signature ecdsaVerify = Signature.getInstance("SHA256withECDSA");
-            ecdsaVerify.initVerify(publicKey);
-            ecdsaVerify.update(rawdata);
+            verifier.initVerify(publicKey);
+            verifier.update(rawdata);
 
-            return ecdsaVerify.verify(signature);
+            return verifier.verify(signature);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
+    private Signature createVeriferFromQrCode(String qrCodeString) throws NoSuchAlgorithmException {
+        String[] parts = qrCodeString.split(";");
+        String signatureAlgorithm = parts[8];
+
+        return Signature.getInstance(mapSignatureAlgorithm(signatureAlgorithm));
+    }
+
     private PublicKey createPublicKeyFromQrCode(String qrCodeString)
-            throws InvalidKeySpecException, NoSuchAlgorithmException {
+            throws InvalidKeySpecException, NoSuchAlgorithmException, InvalidParameterSpecException {
         String[] parts = qrCodeString.split(";");
         byte[] plainPublicKey = Utils.decodeBase64(parts[11]);
+        String signatureAlgorithm = parts[8];
+        String curve = mapSignatureAlgorithmToCurve(signatureAlgorithm);
 
-        return generateP256PublicKeyFromPlain(plainPublicKey);
+        return ucPublicKeyToPublicKey(curve, plainPublicKey);
     }
 
     private byte[] createDerSignatureFromQrCode(String qrCodeString) throws IOException {
@@ -89,35 +106,25 @@ public class QrCodeSignatureVerifier {
         return baos.toByteArray();
     }
 
-    private String mapSignatureAlgorithmToOid(String signatureAlgorithm) {
-        if ("ecdsa-plain-SHA256".equals(signatureAlgorithm)) {
-            return "0.4.0.127.0.7.1.1.4.1.3";
-        }
+    private PublicKey ucPublicKeyToPublicKey(String curveName, byte[] rawPublicKey)
+            throws NoSuchAlgorithmException, InvalidKeySpecException {
+        ECNamedCurveParameterSpec ecNamedCurveParameterSpec = ECNamedCurveTable.getParameterSpec(curveName);
+        ECCurve curve = ecNamedCurveParameterSpec.getCurve();
+        EllipticCurve ellipticCurve = EC5Util.convertCurve(curve, ecNamedCurveParameterSpec.getSeed());
+        ECPoint ecPoint = ECPointUtil.decodePoint(ellipticCurve, rawPublicKey);
+        ECParameterSpec ecParameterSpec = EC5Util.convertSpec(ellipticCurve, ecNamedCurveParameterSpec);
+        ECPublicKeySpec publicKeySpec = new ECPublicKeySpec(ecPoint, ecParameterSpec);
 
-        throw new RuntimeException("Unhandled signatureAlgorithm: " + signatureAlgorithm);
-    }
-
-    private static byte[] P256_HEADER = Base64.getDecoder().decode("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgA=");
-
-    private PublicKey generateP256PublicKeyFromPlain(byte[] plainSignature)
-            throws InvalidKeySpecException, NoSuchAlgorithmException {
-
-        byte[] encodedKey = new byte[P256_HEADER.length + plainSignature.length];
-
-        System.arraycopy(P256_HEADER, 0, encodedKey, 0, P256_HEADER.length);
-        System.arraycopy(plainSignature, 0, encodedKey, P256_HEADER.length, plainSignature.length);
-
-        KeyFactory eckf = KeyFactory.getInstance("EC");
-        X509EncodedKeySpec ecpks = new X509EncodedKeySpec(encodedKey);
-
-        return eckf.generatePublic(ecpks);
+        return KeyFactory.getInstance("EC").generatePublic(publicKeySpec);
     }
 
     private byte[] convertPlainToDEREncodedSignature(byte[] concatenatedSignatureValue) throws IOException {
-        byte[] r = new byte[33];
-        byte[] s = new byte[33];
-        System.arraycopy(concatenatedSignatureValue, 0, r, 1, 32);
-        System.arraycopy(concatenatedSignatureValue, 32, s, 1, 32);
+        int length = concatenatedSignatureValue.length / 2;
+        byte[] r = new byte[length + 1];
+        byte[] s = new byte[length + 1];
+
+        System.arraycopy(concatenatedSignatureValue, 0, r, 1, length);
+        System.arraycopy(concatenatedSignatureValue, length, s, 1, length);
 
         BigInteger rBigInteger = new BigInteger(r);
         BigInteger sBigInteger = new BigInteger(s);
@@ -131,5 +138,41 @@ public class QrCodeSignatureVerifier {
         bos.close();
 
         return bos.toByteArray();
+    }
+
+    private String mapSignatureAlgorithm(String signatureAlgorithm) {
+        if ("ecdsa-plain-SHA256".equals(signatureAlgorithm)) {
+            return "SHA256withECDSA";
+        }
+
+        if ("ecdsa-plain-SHA384".equals(signatureAlgorithm)) {
+            return "SHA384withECDSA";
+        }
+
+        throw new RuntimeException("Unhandled signatureAlgorithm: " + signatureAlgorithm);
+    }
+
+    private String mapSignatureAlgorithmToOid(String signatureAlgorithm) {
+        if ("ecdsa-plain-SHA256".equals(signatureAlgorithm)) {
+            return "0.4.0.127.0.7.1.1.4.1.3";
+        }
+
+        if ("ecdsa-plain-SHA384".equals(signatureAlgorithm)) {
+            return "0.4.0.127.0.7.1.1.4.1.4";
+        }
+
+        throw new RuntimeException("Unhandled signatureAlgorithm: " + signatureAlgorithm);
+    }
+
+    private String mapSignatureAlgorithmToCurve(String signatureAlgorithm) {
+        if ("ecdsa-plain-SHA256".equals(signatureAlgorithm)) {
+            return "secp256r1";
+        }
+
+        if ("ecdsa-plain-SHA384".equals(signatureAlgorithm)) {
+            return "brainpoolP384r1";
+        }
+
+        throw new RuntimeException("Unhandled signatureAlgorithm: " + signatureAlgorithm);
     }
 }

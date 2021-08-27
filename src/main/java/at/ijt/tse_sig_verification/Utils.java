@@ -2,10 +2,14 @@ package at.ijt.tse_sig_verification;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
+import java.util.Date;
+import java.util.TimeZone;
 
 public class Utils {
     public static long convertISO8601DateStringToUnixTime(String dateString) {

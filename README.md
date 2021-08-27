@@ -1,4 +1,5 @@
 # tse_signature_verification
+
 Java sample program to verify a TSE/DSFinV-K signature.
 
 Takes a qr code string like:
@@ -8,5 +9,6 @@ Takes a qr code string like:
 and verifies the included signature.
 
 ### Limitations
-* only supports `ecdsa-plain-SHA256`
-* only supports `unixTime`
+
+- only supports `ecdsa-plain-SHA256` and `ecdsa-plain-SHA384`
+- only supports `unixTime`
