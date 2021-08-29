@@ -14,9 +14,11 @@ import java.security.spec.EllipticCurve;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.InvalidParameterSpecException;
 
+import org.bouncycastle.asn1.ASN1GeneralizedTime;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1OutputStream;
+import org.bouncycastle.asn1.ASN1UTCTime;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.DERSequenceGenerator;
@@ -79,9 +81,10 @@ public class QrCodeSignatureVerifier {
         String processType = parts[2];
         String processData = parts[3];
         String transactionNumber = parts[4];
-        String signatureAlgorithm = mapSignatureAlgorithmToOid(parts[8]);
         long signatureCounter = Long.parseLong(parts[5]);
-        long logTime = Utils.convertISO8601DateStringToUnixTime(parts[7]);
+        String dateTimeString = parts[7];
+        String signatureAlgorithm = mapSignatureAlgorithmToOid(parts[8]);
+        String logTimeFormat = parts[9];
         byte[] serialNumber = Utils.decodeBase64AndSha256(parts[11]);
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -99,7 +102,16 @@ public class QrCodeSignatureVerifier {
 
         dos.writeObject(new DERSequence(new ASN1ObjectIdentifier(signatureAlgorithm)));
         dos.writeObject(new ASN1Integer(signatureCounter));
-        dos.writeObject(new ASN1Integer(logTime));
+
+        if ("unixTime".equals(logTimeFormat)) {
+            dos.writeObject(new ASN1Integer(Utils.convertISO8601DateStringToUnixTime(dateTimeString)));
+        } else if ("utcTime".equals(logTimeFormat)) {
+            dos.writeObject(new ASN1UTCTime(Utils.convertISO8601DateStringToDate(dateTimeString)));
+        } else if ("generalizedTime".equals(logTimeFormat)) {
+            dos.writeObject(new ASN1GeneralizedTime(Utils.convertISO8601DateStringToDate(dateTimeString)));
+        } else {
+            throw new RuntimeException("Unhandled logTimeFormat: " + logTimeFormat);
+        }
 
         dos.close();
 

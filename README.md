@@ -11,4 +11,4 @@ and verifies the included signature.
 ### Limitations
 
 - only supports `ecdsa-plain-SHA256` and `ecdsa-plain-SHA384`
-- only supports `unixTime`
+- only tested log time format: `unixTime`
