@@ -1,4 +1,4 @@
-# tse_signature_verification
+# tse signature verification / TSE Signatur Prüfung
 
 Java sample program to verify a TSE/DSFinV-K signature.
 
